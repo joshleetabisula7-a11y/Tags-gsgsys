@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Telegram Logs Search Bot (no key system)
+app.py — Telegram Logs Search Bot (no key system)
+
 - Anyone can use search immediately (no keys).
-- Upload directory uses /tmp/uploads for Render friendliness.
+- Uploads stored under /tmp/uploads (Render-friendly).
 - Admin commands retained: /addadmin, /removeadmin, /listadmins, /clearglobal
-- BOT_TOKEN has been set from user input (hard-coded). For security, prefer using an env var.
+- BOT_TOKEN is hard-coded here (use env var in production if you prefer).
 """
 import os
 import re
@@ -86,10 +87,6 @@ def ensure_session(user_id: int):
             "_awaiting_upload": False,
         }
     return sessions[user_id]
-
-def mask_key(k: Optional[str]) -> str:
-    if not k: return ""
-    return k[:3] + "..." + k[-3:] if len(k) > 6 else "*" * len(k)
 
 def keyword_buttons_markup(user_id: int):
     sess = ensure_session(user_id)
@@ -215,7 +212,8 @@ async def file_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     ensure_dirs()
     safe_name = f"{user.id}_{int(datetime.utcnow().timestamp())}_{os.path.basename(doc.file_name)}"
     dest = os.path.join(UPLOAD_DIR, safe_name)
-    await f.download_to_drive(custom_path=dest)
+    # download_to_drive accepts a path (no keyword)
+    await f.download_to_drive(dest)
     sess["uploaded_file"] = dest
     await update.message.reply_text(f"Uploaded: {os.path.basename(dest)}", reply_markup=keyword_buttons_markup(user.id))
 
@@ -260,10 +258,10 @@ async def perform_search_for_user(user_id: int, context: ContextTypes.DEFAULT_TY
                         break
         sess["results"] = results
         if not results:
-            await context.bot.send_message(chat_id=user_id, text="No results found (filters/dedupe).", reply_markup=keyword_buttons_markup(user.id))
+            await context.bot.send_message(chat_id=user_id, text="No results found (filters/dedupe).", reply_markup=keyword_buttons_markup(user_id))
             return
         preview = "\n".join(results[:10])
-        await context.bot.send_message(chat_id=user_id, text=f"Found {len(results)} results. First items:\n\n{preview}\n\nTotal: {len(results)} (limit {limit})", reply_markup=keyword_buttons_markup(user.id))
+        await context.bot.send_message(chat_id=user_id, text=f"Found {len(results)} results. First items:\n\n{preview}\n\nTotal: {len(results)} (limit {limit})", reply_markup=keyword_buttons_markup(user_id))
     except Exception as e:
         logger.exception("Search failed: %s", e)
         await context.bot.send_message(chat_id=user_id, text="Search failed: " + str(e))
@@ -371,7 +369,8 @@ def main():
 
     app.add_handler(CallbackQueryHandler(cb_handler))
 
-    app.add_handler(MessageHandler(filters.Document.FILE & (~filters.COMMAND), file_handler))
+    # Use filters.Document (matches documents) and ensure no command messages
+    app.add_handler(MessageHandler(filters.Document & (~filters.COMMAND), file_handler))
     app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), text_message_handler))
 
     app.add_handler(CommandHandler("clearglobal", clearglobal_cmd))
